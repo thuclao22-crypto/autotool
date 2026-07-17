@@ -1,0 +1,10 @@
+PyQt6>=6.6
+moviepy>=2.0
+opencv-python-headless>=4.10
+FFmpeg-python==0.2.0
+PyInstaller==6.3.0
+faster-whisper
+torch
+deep-translator
+openai
+google-generativeai
