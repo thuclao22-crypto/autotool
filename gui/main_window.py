@@ -450,12 +450,16 @@ class MainWindow(QMainWindow):
             openai_key=openai_key,
             word_timestamps=True
         )
-        if len(result) == 4:
+        if len(result) == 5:
+            srt_path, lang, srt_list, api_error, error_detail = result
+        elif len(result) == 4:
             srt_path, lang, srt_list, api_error = result
+            error_detail = ""
         else:
             srt_path, lang, srt_list = result
             api_error = False
-        return {"srt_list": srt_list, "api_error": api_error}
+            error_detail = ""
+        return {"srt_list": srt_list, "api_error": api_error, "error_detail": error_detail}
 
     def update_api_status_label(self):
         """Cập nhật nhãn trạng thái API Key ngay khi người dùng nhập liệu"""
@@ -474,10 +478,14 @@ class MainWindow(QMainWindow):
     def on_scan_finished(self, result_data):
         if isinstance(result_data, dict):
             api_error = result_data.get("api_error", False)
+            error_detail = result_data.get("error_detail", "")
             srt_list = result_data.get("srt_list", [])
             if api_error:
                 from PyQt6.QtWidgets import QMessageBox
-                QMessageBox.critical(self, "CẢNH BÁO", "CẢNH BÁO: Khóa API Key bạn nhập đã bị nhà phát triển khóa hoặc hết hạn! Hệ thống buộc phải dùng bộ nghe offline Whisper Local nên độ chính xác tiếng Việt sẽ bị giảm sút. Vui lòng kiểm tra hoặc thay mã API Key mới!")
+                msg = "CẢNH BÁO: Khóa API Key bạn nhập đã bị nhà phát triển khóa hoặc gặp lỗi! Hệ thống buộc phải dùng bộ nghe offline Whisper Local nên độ chính xác tiếng Việt sẽ bị giảm sút. Vui lòng kiểm tra hoặc thay mã API Key mới!"
+                if error_detail:
+                    msg += f"\n\nChi tiết lỗi hệ thống từ máy chủ:\n{error_detail}"
+                QMessageBox.critical(self, "CẢNH BÁO", msg)
         else:
             srt_list = result_data
             

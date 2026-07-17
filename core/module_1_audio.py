@@ -74,6 +74,7 @@ class TranscriptionModule:
         srt_path = os.path.join(output_dir, f"{video_filename}.srt")
         
         api_error = False
+        error_detail = ""
         result_segments = []
         detected_lang = whisper_lang
 
@@ -94,8 +95,6 @@ class TranscriptionModule:
                 detected_lang = response.language
                 
                 for seg in response.segments:
-                    # Open AI trả về seg có dict 'words' (hoặc object)
-                    seg_words = getattr(seg, 'words', getattr(seg, 'words', []))
                     if isinstance(seg, dict):
                         seg_start = seg['start']
                         seg_end = seg['end']
@@ -125,6 +124,7 @@ class TranscriptionModule:
             except Exception as e:
                 print(f"[OpenAI API] Lỗi: {e}")
                 api_error = True
+                error_detail = str(e)
             
             if audio_path != video_path and os.path.exists(audio_path):
                 try: os.remove(audio_path)
@@ -138,17 +138,39 @@ class TranscriptionModule:
                 genai.configure(api_key=active_api_key)
                 
                 # Cần upload_file
+                import time
                 audio_file = genai.upload_file(audio_path)
-                model = genai.GenerativeModel('gemini-1.5-flash')
+                
+                # Polling chờ file xử lý xong bên máy chủ Gemini
+                start_time = time.time()
+                while audio_file.state.name == "PROCESSING":
+                    if time.time() - start_time > 60:
+                        raise Exception("Timeout khi chờ Gemini xử lý file audio (vượt quá 60s).")
+                    time.sleep(2)
+                    audio_file = genai.get_file(audio_file.name)
+                
+                if audio_file.state.name == "FAILED":
+                    raise Exception("Gemini xử lý file audio thất bại (Trạng thái: FAILED).")
+                    
+                model = genai.GenerativeModel('gemini-flash-latest')
                 prompt = (
-                    "Please transcribe this audio. Output ONLY a valid JSON array where each object has: "
+                    "Please transcribe this audio. Output ONLY a valid JSON object with two keys: "
+                    "'detected_language' (string, ISO 639-1 code like 'vi', 'en', 'ja') and "
+                    "'segments' (an array of objects). Each object in 'segments' must have: "
                     "'start' (float seconds), 'end' (float seconds), 'text' (string sentence), "
                     "and 'words' (array of objects with 'start', 'end', 'word'). Do your best to estimate word timestamps. Output nothing but JSON."
                 )
                 response = model.generate_content([prompt, audio_file])
                 
                 raw_json = response.text.replace("```json", "").replace("```", "").strip()
-                segments_json = json.loads(raw_json)
+                parsed_json = json.loads(raw_json)
+                
+                if isinstance(parsed_json, dict) and "segments" in parsed_json:
+                    segments_json = parsed_json["segments"]
+                    if "detected_language" in parsed_json and parsed_json["detected_language"]:
+                        detected_lang = parsed_json["detected_language"]
+                else:
+                    segments_json = parsed_json # Đề phòng model trả thẳng về Array
                 
                 for seg in segments_json:
                     result_segments.append({
@@ -157,10 +179,10 @@ class TranscriptionModule:
                         "text": seg["text"],
                         "words": seg.get("words", [])
                     })
-                detected_lang = "vi" # Fallback
             except Exception as e:
                 print(f"[Gemini API] Lỗi: {e}")
                 api_error = True
+                error_detail = str(e)
             
             if audio_path != video_path and os.path.exists(audio_path):
                 try: os.remove(audio_path)
@@ -244,7 +266,7 @@ class TranscriptionModule:
         # Tạo file SRT
         self.write_srt(formatted_srt_list, srt_path)
         
-        return srt_path, detected_lang, formatted_srt_list, api_error
+        return srt_path, detected_lang, formatted_srt_list, api_error, error_detail
 
     def split_vietnamese_segments_with_words(self, text, max_words=5, words_list=None):
         words = text.split()
@@ -263,7 +285,6 @@ class TranscriptionModule:
         return segments, segments_words
 
     def clean_vietnamese_text(self, text):
-        text = text.lower()
         vietnamese_corrections = {
             "thủ vếi": "về ai",
             "cuộc tôi": "cuộc đời tôi",
@@ -273,8 +294,11 @@ class TranscriptionModule:
             "subscribe": "Đăng ký",
             "chanel": "kênh"
         }
+        text_lower = text.lower()
         for wrong, right in vietnamese_corrections.items():
-            text = text.replace(wrong, right)
+            if wrong in text_lower:
+                text = re.sub(re.escape(wrong), right, text, flags=re.IGNORECASE)
+                text_lower = text.lower()
             
         num_words_map = {
             "hai mươi mốt": "21", "hai mươi hai": "22", "hai mươi ba": "23", "hai mươi tư": "24", 
@@ -297,21 +321,32 @@ class TranscriptionModule:
             "mười sáu": "16", "mười bảy": "17", "mười tám": "18", "mười chín": "19",
             "hai mươi": "20", "ba mươi": "30", "bốn mươi": "40", "năm mươi": "50", "sáu mươi": "60",
             "bảy mươi": "70", "tám mươi": "80", "chín mươi": "90",
-            "mười": "10", "không": "0", "một": "1", "hai": "2", "ba": "3", "bốn": "4", "năm": "5",
-            "sáu": "6", "bảy": "7", "tám": "8", "chín": "9"
+            "mười": "10"
         }
         for phrase, num_str in num_words_map.items():
-            pattern = re.compile(rf'(?<!\w){phrase}(?!\w)')
+            pattern = re.compile(rf'(?<!\w){phrase}(?!\w)', flags=re.IGNORECASE)
             text = pattern.sub(num_str, text)
             
+        single_num_map = {
+            "không": "0", "một": "1", "hai": "2", "ba": "3", "bốn": "4", "năm": "5",
+            "sáu": "6", "bảy": "7", "tám": "8", "chín": "9"
+        }
+        context_words = ["số", "khoảng", "gần", "hơn", "được", "phút", "giờ", "giây", "ngày", "tháng", "%", "lúc"]
+        for phrase, num_str in single_num_map.items():
+            for ctx in context_words:
+                pattern = re.compile(rf'(?<!\w)({ctx})\s+{phrase}(?!\w)', flags=re.IGNORECASE)
+                text = pattern.sub(rf'\g<1> {num_str}', text)
+                
         # Nâng cấp: Chuẩn hóa khoảng trắng thừa
         text = re.sub(r'\s+', ' ', text).strip()
         # Nâng cấp: Chuẩn hóa dấu câu dính chữ (thêm khoảng trắng sau dấu câu)
         text = re.sub(r'([.?!,])([^\s])', r'\1 \2', text)
         
-        # Nâng cấp: Viết hoa chữ cái đầu tiên hoặc sau dấu câu chấm hết câu
-        text = text.capitalize() # Viết hoa đầu câu trước
-        # Viết hoa sau các dấu kết thúc câu
+        # Viết hoa chữ cái đầu tiên nếu đang là chữ thường (không hạ phần còn lại)
+        if len(text) > 0 and text[0].islower():
+            text = text[0].upper() + text[1:]
+            
+        # Viết hoa sau các dấu kết thúc câu (không hạ phần còn lại)
         def capitalize_match(match):
             return match.group(1) + match.group(2).upper()
         text = re.sub(r'([.?!]\s+)([a-zà-ỹ])', capitalize_match, text)
