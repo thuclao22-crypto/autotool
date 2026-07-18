@@ -24,7 +24,8 @@ def get_font_path(font_family):
                     return value
         except Exception:
             pass
-        return "C:\\Windows\\Fonts\\arial.ttf"
+        print(f"[CẢNH BÁO] Không tìm thấy font '{font_family}' trong registry, dùng font dự phòng")
+        return os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'fonts', 'fallback.ttf')
     else:
         if os.path.exists(font_family):
             return font_family
@@ -32,7 +33,8 @@ def get_font_path(font_family):
         linux_path = "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"
         if os.path.exists(mac_path): return mac_path
         if os.path.exists(linux_path): return linux_path
-        return "Arial.ttf"
+        print(f"[CẢNH BÁO] Không tìm thấy font '{font_family}' trong hệ thống, dùng font dự phòng")
+        return os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'fonts', 'fallback.ttf')
 
 def set_clip_opacity(clip, opacity):
     """Thiết lập opacity (mức độ mờ) tĩnh hoặc động cho clip"""
@@ -49,7 +51,8 @@ def wrap_text(text, font_path, font_size, max_width):
     try:
         font = ImageFont.truetype(font_path, font_size)
     except Exception:
-        font = None
+        fallback_font_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'fonts', 'fallback.ttf')
+        font = ImageFont.truetype(fallback_font_path, font_size)
         
     words = text.split()
     lines = []
@@ -79,7 +82,8 @@ def layout_text_pil(text, font_path, font_size, max_width, words_meta=None, star
     try:
         font = ImageFont.truetype(font_path, font_size)
     except Exception:
-        font = ImageFont.load_default()
+        fallback_font_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'assets', 'fonts', 'fallback.ttf')
+        font = ImageFont.truetype(fallback_font_path, font_size)
 
     lines_text = text.split('\n')
     words_meta_idx = 0
@@ -493,15 +497,18 @@ class RenderingModule:
                 
                 if abs(vid_ratio - target_ratio) > 0.05:
                     if vid_ratio > target_ratio:
-                        # Video rộng hơn -> Fit height, crop center width
-                        video = video.resized(height=canvas_h)
-                        video = video.cropped(x_center=video.w/2, width=canvas_w)
-                    else:
-                        # Video cao hơn -> Fit width, crop center height
+                        # Video rộng hơn -> Fit width, chiều cao nhỏ hơn canvas_h
                         video = video.resized(width=canvas_w)
-                        video = video.cropped(y_center=video.h/2, height=canvas_h)
+                    else:
+                        # Video cao hơn -> Fit height, chiều rộng nhỏ hơn canvas_w
+                        video = video.resized(height=canvas_h)
                 else:
                     video = video.resized(width=canvas_w, height=canvas_h)
+                    
+                # Tạo nền đen
+                bg_clip = ColorClip(size=(canvas_w, canvas_h), color=(0,0,0)).with_duration(video.duration)
+                # Chồng video lên giữa nền đen (Composite nằm ở layer 0)
+                video = CompositeVideoClip([bg_clip, video.with_position('center')])
                     
                 style_config['video_width'] = canvas_w
                 style_config['video_height'] = canvas_h

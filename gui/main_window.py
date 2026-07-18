@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Chọn Thư mục Video")
         if folder: 
             self.input_path_edit.setText(folder)
-            files = [f for f in os.listdir(folder) if f.lower().endswith(('.mp4', '.avi', '.mkv'))]
+            files = sorted([f for f in os.listdir(folder) if f.lower().endswith(('.mp4', '.avi', '.mkv'))])
             if files:
                 first_video = os.path.join(folder, files[0])
                 self.update_video_preview(first_video)
@@ -417,8 +417,8 @@ class MainWindow(QMainWindow):
 
         target_file = input_path
         if os.path.isdir(input_path):
-            video_files = [os.path.join(input_path, f) for f in os.listdir(input_path) 
-                           if f.lower().endswith(('.mp4', '.mkv', '.avi', '.mov'))]
+            video_files = sorted([os.path.join(input_path, f) for f in os.listdir(input_path) 
+                                  if f.lower().endswith(('.mp4', '.mkv', '.avi', '.mov'))])
             if not video_files:
                 self.set_progress("Lỗi: Không có video trong thư mục!", 0)
                 return
@@ -555,8 +555,8 @@ class MainWindow(QMainWindow):
 
         video_files = []
         if os.path.isdir(input_path):
-            video_files = [os.path.join(input_path, f) for f in os.listdir(input_path)
-                           if f.lower().endswith(('.mp4', '.mkv', '.avi', '.mov'))]
+            video_files = sorted([os.path.join(input_path, f) for f in os.listdir(input_path)
+                                  if f.lower().endswith(('.mp4', '.mkv', '.avi', '.mov'))])
         else:
             video_files = [input_path]
 
@@ -644,7 +644,7 @@ class MainWindow(QMainWindow):
         input_path = self.input_path_edit.text().strip()
         video_path = input_path
         if os.path.isdir(input_path):
-            files = [f for f in os.listdir(input_path) if f.lower().endswith(('.mp4', '.avi', '.mkv'))]
+            files = sorted([f for f in os.listdir(input_path) if f.lower().endswith(('.mp4', '.avi', '.mkv'))])
             if files: video_path = os.path.join(input_path, files[0])
             
         if os.path.exists(video_path):
